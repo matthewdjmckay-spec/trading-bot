@@ -160,7 +160,7 @@ def check_once(symbol: str):
         fill = result.get("orderFillTransaction")
         if fill:
             print(f"[{now}] {symbol}: OANDA order FILLED - {fill['units']} units @ {fill['price']}")
-            send_trade_placed(get_webhook_for(symbol), symbol, sig.action, int(fill["units"]), float(fill["price"]))
+            send_trade_placed(get_webhook_for(symbol), symbol, sig.action, int(float(fill["units"])), float(fill["price"]))
 
             trade_opened = fill.get("tradeOpened")
             if trade_opened:
