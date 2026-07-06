@@ -26,6 +26,17 @@ SYMBOL_MAP = {
     "BTC-USD": "BTC_USD",
 }
 
+# OANDA rejects orders if a price has more decimal places than the instrument
+# allows. Gold allows 2 decimal places (e.g. 4228.45), most forex pairs allow
+# 5, JPY pairs allow 3. Extend this alongside SYMBOL_MAP if you add instruments.
+PRICE_PRECISION = {
+    "XAU_USD": 2,
+    "EUR_USD": 5,
+    "GBP_USD": 5,
+    "USD_JPY": 3,
+    "BTC_USD": 2,
+}
+
 
 def _base_url():
     return BASE_URLS[config.OANDA_ENVIRONMENT]
@@ -107,6 +118,7 @@ def place_market_order(symbol: str, direction: str, entry_price: float, stop_los
     """
     instrument = to_oanda_instrument(symbol)
     units = calculate_units(direction, entry_price, stop_loss)
+    precision = PRICE_PRECISION.get(instrument, 5)
 
     order_payload = {
         "order": {
@@ -115,8 +127,8 @@ def place_market_order(symbol: str, direction: str, entry_price: float, stop_los
             "units": str(units),
             "timeInForce": "FOK",
             "positionFill": "DEFAULT",
-            "stopLossOnFill": {"price": f"{stop_loss:.5f}"},
-            "takeProfitOnFill": {"price": f"{take_profit:.5f}"},
+            "stopLossOnFill": {"price": f"{stop_loss:.{precision}f}"},
+            "takeProfitOnFill": {"price": f"{take_profit:.{precision}f}"},
         }
     }
 
