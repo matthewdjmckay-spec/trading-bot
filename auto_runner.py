@@ -3,19 +3,6 @@ Runs continuously in the background: checks every symbol in config.WATCHLIST
 every CHECK_INTERVAL_SECONDS, and only sends a Discord message when it's a NEW
 BUY/SELL signal for that symbol - not a repeat of one already sent, and not
 on every HOLD.
-
-Usage:
-    python3 auto_runner.py                    -> watches every symbol in config.WATCHLIST
-    python3 auto_runner.py EURUSD=X           -> watches ONLY this one symbol instead
-
-Stop it any time with Ctrl+C.
-
-How it avoids spamming you:
-Each signal is tagged with the timestamp of the candle that produced it.
-The script remembers the timestamp of the last signal it already alerted on,
-per symbol (saved to a small local file, alerted_state.json, so it survives
-restarts) and only sends a new Discord message when that timestamp changes
-AND the action isn't HOLD.
 """
 import sys
 import time
@@ -69,11 +56,6 @@ def _save_json(path: str, data):
 
 
 def check_open_trades():
-    """
-    Checks every trade we're tracking as open. If OANDA reports it's since
-    closed (hit TP or SL), sends a Discord message with the outcome and
-    stops tracking it.
-    """
     trades = _load_json(OPEN_TRADES_FILE, default={})
     if not trades:
         return
@@ -84,16 +66,14 @@ def check_open_trades():
             trade = oanda_client.get_trade(trade_id)
         except Exception as e:
             print(f"Error checking trade {trade_id} ({symbol}): {e}")
-            still_open[trade_id] = symbol  # keep tracking, retry next loop
+            still_open[trade_id] = symbol
             continue
 
         if trade["state"] == "OPEN":
             still_open[trade_id] = symbol
             continue
 
-        # Trade has closed - figure out why and notify
         realized_pl = float(trade.get("realizedPL", 0))
-        # OANDA's trade object doesn't always directly label TP vs SL - infer from the realized P/L sign
         outcome = "TAKE_PROFIT" if realized_pl > 0 else "STOP_LOSS" if realized_pl < 0 else "CLOSED"
 
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -154,7 +134,6 @@ def check_once(symbol: str):
     send_discord_signal(get_webhook_for(symbol), symbol, sig)
     save_last_alerted(symbol, ts_str)
 
-    # Place the trade on the OANDA demo account
     try:
         result = oanda_client.place_market_order(symbol, sig.action, sig.price, sig.stop_loss, sig.take_profit)
         fill = result.get("orderFillTransaction")
@@ -166,7 +145,9 @@ def check_once(symbol: str):
             if trade_opened:
                 track_open_trade(trade_opened["tradeID"], symbol)
         else:
-            print(f"[{now}] {symbol}: OANDA order response received but no fill confirmed - check OANDA app.")
+            cancel = result.get("orderCancelTransaction")
+            reason = cancel.get("reason") if cancel else "unknown"
+            print(f"[{now}] {symbol}: OANDA order NOT filled - reason: {reason}")
     except Exception as e:
         print(f"[{now}] {symbol}: OANDA order FAILED: {e}")
 
@@ -175,19 +156,11 @@ def main():
     symbols = [sys.argv[1]] if len(sys.argv) > 1 else config.WATCHLIST
 
     if config.OANDA_ENVIRONMENT != "practice":
-        print(
-            "SAFETY STOP: config.OANDA_ENVIRONMENT is not set to 'practice'. "
-            "This script will not run against a live/real-money account. "
-            "Set OANDA_ENVIRONMENT = \"practice\" in config.py to continue."
-        )
+        print("SAFETY STOP: config.OANDA_ENVIRONMENT is not set to 'practice'.")
         return
 
     if not any(config.DISCORD_WEBHOOKS.values()) and not config.DEFAULT_DISCORD_WEBHOOK_URL:
-        print(
-            "WARNING: no webhook URLs configured in config.py. The script will still run and "
-            "print signals to this terminal, but it won't be able to message Discord until "
-            "you paste webhook URLs into config.py."
-        )
+        print("WARNING: no webhook URLs configured.")
 
     print(f"Watching {symbols} - checking every {config.CHECK_INTERVAL_SECONDS} seconds. Press Ctrl+C to stop.\n")
 

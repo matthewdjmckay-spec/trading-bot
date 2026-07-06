@@ -16,8 +16,6 @@ BASE_URLS = {
     "live": "https://api-fxtrade.oanda.com",
 }
 
-# Maps our yfinance-style symbols to OANDA's instrument naming convention.
-# Extend this if you add more symbols to config.WATCHLIST.
 SYMBOL_MAP = {
     "GC=F": "XAU_USD",
     "EURUSD=X": "EUR_USD",
@@ -26,9 +24,6 @@ SYMBOL_MAP = {
     "BTC-USD": "BTC_USD",
 }
 
-# OANDA rejects orders if a price has more decimal places than the instrument
-# allows. Gold allows 2 decimal places (e.g. 4228.45), most forex pairs allow
-# 5, JPY pairs allow 3. Extend this alongside SYMBOL_MAP if you add instruments.
 PRICE_PRECISION = {
     "XAU_USD": 2,
     "EUR_USD": 5,
@@ -58,10 +53,6 @@ def to_oanda_instrument(symbol: str) -> str:
 
 
 def test_connection() -> dict:
-    """
-    Confirms the token + account ID work. Returns account summary info,
-    or raises an exception with OANDA's error message if something's wrong.
-    """
     url = f"{_base_url()}/v3/accounts/{config.OANDA_ACCOUNT_ID}/summary"
     resp = requests.get(url, headers=_headers(), timeout=10)
     if resp.status_code != 200:
@@ -75,16 +66,6 @@ def get_account_balance() -> float:
 
 
 def calculate_units(direction: str, entry_price: float, stop_loss: float) -> int:
-    """
-    Position size based on config.RISK_PER_TRADE_PCT of account balance.
-
-    NOTE - simplification for v1: this treats 1 unit of price movement as
-    1 unit of account currency risk, which is only exactly true for pairs
-    quoted directly in your account currency (e.g. EUR_USD when your account
-    is in USD). For XAU_USD or JPY pairs the true risk-per-unit differs -
-    good enough for demo-account testing, but not precise enough to rely on
-    with real money without refining the pip-value calculation per instrument.
-    """
     balance = get_account_balance()
     risk_amount = balance * (config.RISK_PER_TRADE_PCT / 100)
     price_risk = abs(entry_price - stop_loss)
@@ -99,10 +80,6 @@ def calculate_units(direction: str, entry_price: float, stop_loss: float) -> int
 
 
 def get_trade(trade_id: str) -> dict:
-    """
-    Fetches current status of a single trade by ID. Use this to check whether
-    an open trade has since closed (hit its TP or SL).
-    """
     url = f"{_base_url()}/v3/accounts/{config.OANDA_ACCOUNT_ID}/trades/{trade_id}"
     resp = requests.get(url, headers=_headers(), timeout=10)
     if resp.status_code != 200:
@@ -111,11 +88,6 @@ def get_trade(trade_id: str) -> dict:
 
 
 def place_market_order(symbol: str, direction: str, entry_price: float, stop_loss: float, take_profit: float) -> dict:
-    """
-    Places a market order on OANDA with attached stop loss and take profit.
-    direction must be "BUY" or "SELL".
-    Returns OANDA's response JSON, or raises an exception on failure.
-    """
     instrument = to_oanda_instrument(symbol)
     units = calculate_units(direction, entry_price, stop_loss)
     precision = PRICE_PRECISION.get(instrument, 5)
@@ -125,7 +97,7 @@ def place_market_order(symbol: str, direction: str, entry_price: float, stop_los
             "type": "MARKET",
             "instrument": instrument,
             "units": str(units),
-            "timeInForce": "FOK",
+            "timeInForce": "IOC",
             "positionFill": "DEFAULT",
             "stopLossOnFill": {"price": f"{stop_loss:.{precision}f}"},
             "takeProfitOnFill": {"price": f"{take_profit:.{precision}f}"},
