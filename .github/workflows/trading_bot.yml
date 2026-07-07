@@ -31,14 +31,14 @@ jobs:
           DISCORD_WEBHOOK_RESULTS: ${{ secrets.DISCORD_WEBHOOK_RESULTS }}
         run: python3 run_once.py
 
-      # The bot's "memory" (which signals it already alerted on, which trades
-      # are still open) is saved to small JSON files. GitHub Actions starts
-      # fresh every run, so we commit those files back to the repo here -
-      # that way the NEXT run picks up where this one left off.
       - name: Save bot memory back to the repo
         run: |
           git config user.name "trading-bot"
           git config user.email "trading-bot@users.noreply.github.com"
-          git add alerted_state.json open_trades.json trade_stats.json 2>/dev/null || true
+          for f in alerted_state.json open_trades.json trade_stats.json; do
+            if [ -f "$f" ]; then
+              git add "$f"
+            fi
+          done
           git diff --quiet --cached || git commit -m "Update bot state [skip ci]"
           git push || true
