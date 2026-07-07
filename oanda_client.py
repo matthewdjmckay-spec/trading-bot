@@ -87,10 +87,39 @@ def get_trade(trade_id: str) -> dict:
     return resp.json()["trade"]
 
 
+def get_current_price(symbol: str) -> float:
+    """
+    Fetches OANDA's actual current price - used to re-anchor stop loss/take
+    profit right before placing an order, since the strategy's price (from
+    yfinance) can be a minute or two stale by the time we act on it.
+    """
+    instrument = to_oanda_instrument(symbol)
+    url = f"{_base_url()}/v3/accounts/{config.OANDA_ACCOUNT_ID}/pricing"
+    resp = requests.get(url, headers=_headers(), params={"instruments": instrument}, timeout=10)
+    if resp.status_code != 200:
+        raise RuntimeError(f"OANDA get_current_price failed ({resp.status_code}): {resp.text}")
+
+    prices = resp.json()["prices"][0]
+    bid = float(prices["bids"][0]["price"])
+    ask = float(prices["asks"][0]["price"])
+    return (bid + ask) / 2
+
+
 def place_market_order(symbol: str, direction: str, entry_price: float, stop_loss: float, take_profit: float) -> dict:
     instrument = to_oanda_instrument(symbol)
     units = calculate_units(direction, entry_price, stop_loss)
     precision = PRICE_PRECISION.get(instrument, 5)
+
+    live_price = get_current_price(symbol)
+    sl_distance = abs(entry_price - stop_loss)
+    tp_distance = abs(take_profit - entry_price)
+
+    if direction == "BUY":
+        adjusted_stop_loss = live_price - sl_distance
+        adjusted_take_profit = live_price + tp_distance
+    else:
+        adjusted_stop_loss = live_price + sl_distance
+        adjusted_take_profit = live_price - tp_distance
 
     order_payload = {
         "order": {
@@ -99,8 +128,8 @@ def place_market_order(symbol: str, direction: str, entry_price: float, stop_los
             "units": str(units),
             "timeInForce": "IOC",
             "positionFill": "DEFAULT",
-            "stopLossOnFill": {"price": f"{stop_loss:.{precision}f}"},
-            "takeProfitOnFill": {"price": f"{take_profit:.{precision}f}"},
+            "stopLossOnFill": {"price": f"{adjusted_stop_loss:.{precision}f}"},
+            "takeProfitOnFill": {"price": f"{adjusted_take_profit:.{precision}f}"},
         }
     }
 
