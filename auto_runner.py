@@ -114,6 +114,11 @@ def get_webhook_for(symbol: str) -> str:
     return config.DISCORD_WEBHOOKS.get(symbol) or config.DEFAULT_DISCORD_WEBHOOK_URL
 
 
+def has_open_trade_for_symbol(symbol: str) -> bool:
+    trades = _load_json(OPEN_TRADES_FILE, default={})
+    return symbol in trades.values()
+
+
 def check_once(symbol: str):
     df = fetch_candles(symbol, config.LOOKBACK_PERIOD, config.INTERVAL)
     sig = latest_signal(df, config, symbol)
@@ -133,6 +138,10 @@ def check_once(symbol: str):
     print(f"[{now}] {symbol}: NEW {sig.action} signal @ {sig.price:.4f} - sending Discord alert")
     send_discord_signal(get_webhook_for(symbol), symbol, sig)
     save_last_alerted(symbol, ts_str)
+
+    if has_open_trade_for_symbol(symbol):
+        print(f"[{now}] {symbol}: already has an open trade - skipping new entry (matches backtest's one-at-a-time rule)")
+        return
 
     try:
         result = oanda_client.place_market_order(symbol, sig.action, sig.price, sig.stop_loss, sig.take_profit)
