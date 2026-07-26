@@ -29,16 +29,34 @@ def generate_signals(df: pd.DataFrame, cfg) -> pd.DataFrame:
     """
     Adds an 'action' column to the dataframe for every row (used by the backtester
     to simulate trade-by-trade). BUY/SELL fire only on the bar where the EMA
-    crossover happens, filtered by RSI; every other bar is HOLD.
+    crossover happens, filtered by RSI AND by the longer-term trend (EMA_TREND) -
+    a BUY only fires if price is above the trend EMA (real uptrend), a SELL only
+    fires if price is below it (real downtrend). This was added after live testing
+    showed a large share of crossover signals were false alarms against the
+    broader trend.
     """
-    data = add_indicators(df, cfg.EMA_FAST, cfg.EMA_SLOW, cfg.RSI_PERIOD, cfg.ATR_PERIOD)
+    ema_trend_period = getattr(cfg, "EMA_TREND", None)
+    data = add_indicators(df, cfg.EMA_FAST, cfg.EMA_SLOW, cfg.RSI_PERIOD, cfg.ATR_PERIOD, ema_trend_period)
 
     fast_above_slow = data["ema_fast"] > data["ema_slow"]
-    crossed_up = fast_above_slow & (~fast_above_slow.shift(1).fillna(False))
-    crossed_down = (~fast_above_slow) & (fast_above_slow.shift(1).fillna(False))
+    # NOTE: must use shift(fill_value=False) here, NOT shift().fillna(False) -
+    # the latter silently converts the boolean column to an "object" dtype
+    # (to hold the NaN before fillna), which breaks the ~ (not) operator into
+    # doing bitwise arithmetic instead of logical negation. That bug caused
+    # every bar where fast > slow to be flagged as a "fresh crossover," not
+    # just the actual crossing bar - found via live trading data in week 3.
+    prev_above = fast_above_slow.shift(1, fill_value=False)
+    crossed_up = fast_above_slow & (~prev_above)
+    crossed_down = (~fast_above_slow) & prev_above
 
     buy_cond = crossed_up & (data["rsi"] < cfg.RSI_UPPER)
     sell_cond = crossed_down & (data["rsi"] > cfg.RSI_LOWER)
+
+    if ema_trend_period:
+        in_uptrend = data["Close"] > data["ema_trend"]
+        in_downtrend = data["Close"] < data["ema_trend"]
+        buy_cond = buy_cond & in_uptrend
+        sell_cond = sell_cond & in_downtrend
 
     data["action"] = "HOLD"
     data.loc[buy_cond, "action"] = "BUY"
@@ -73,6 +91,8 @@ def latest_signal(df: pd.DataFrame, cfg, symbol: str) -> Signal:
         f"RSI({cfg.RSI_PERIOD})={last['rsi']:.1f}",
         f"ATR({cfg.ATR_PERIOD})={last['atr']:.4f}",
     ]
+    if "ema_trend" in data.columns:
+        reason_parts.append(f"EMA{cfg.EMA_TREND}(trend)={last['ema_trend']:.4f}")
     if action == "HOLD":
         reason_parts.insert(0, "No fresh EMA crossover on this candle, or RSI filter blocked it")
     else:

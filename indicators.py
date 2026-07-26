@@ -35,10 +35,12 @@ def atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
     return true_range.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
 
 
-def add_indicators(df: pd.DataFrame, ema_fast: int, ema_slow: int, rsi_period: int, atr_period: int) -> pd.DataFrame:
+def add_indicators(df: pd.DataFrame, ema_fast: int, ema_slow: int, rsi_period: int, atr_period: int, ema_trend: int = None) -> pd.DataFrame:
     out = df.copy()
     out["ema_fast"] = ema(out["Close"], ema_fast)
     out["ema_slow"] = ema(out["Close"], ema_slow)
     out["rsi"] = rsi(out["Close"], rsi_period)
     out["atr"] = atr(out, atr_period)
+    if ema_trend:
+        out["ema_trend"] = ema(out["Close"], ema_trend)
     return out
