@@ -1,11 +1,5 @@
 """
 Central config. Change SYMBOL to switch instruments without touching other files.
-
-Secrets (API keys, webhooks) are NOT stored in this file, on purpose - this file
-is safe to upload to GitHub. Locally, real values come from local_secrets.py
-(which is in .gitignore and never gets uploaded). On GitHub Actions, real values
-come from GitHub Secrets instead. Either way, this file just reads whichever is
-available.
 """
 import os
 
@@ -16,17 +10,17 @@ except ImportError:
 
 
 def _secret(env_name: str) -> str:
-    """Environment variable (GitHub Actions) takes priority, then local_secrets.py (your Mac), then blank."""
     return os.getenv(env_name) or (getattr(_local, env_name, "") if _local else "") or ""
 
 
 SYMBOL = "GC=F"
-WATCHLIST = ["GC=F", "EURUSD=X", "GBPUSD=X"]
+WATCHLIST = ["EURUSD=X", "GBPUSD=X"]
 INTERVAL = "15m"
 LOOKBACK_PERIOD = "5d"
 
 EMA_FAST = 9
 EMA_SLOW = 21
+EMA_TREND = 50
 RSI_PERIOD = 14
 RSI_UPPER = 70
 RSI_LOWER = 30
