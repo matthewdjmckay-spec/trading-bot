@@ -39,7 +39,7 @@ jobs:
         run: |
           git config user.name "trading-bot"
           git config user.email "trading-bot@users.noreply.github.com"
-          for f in alerted_state.json open_trades.json trade_stats.json; do
+          for f in alerted_state.json open_trades.json trade_stats.json trade_history.json; do
             if [ -f "$f" ]; then
               git add "$f"
             fi

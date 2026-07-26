@@ -20,6 +20,18 @@ import oanda_client
 STATE_FILE = "alerted_state.json"
 OPEN_TRADES_FILE = "open_trades.json"
 STATS_FILE = "trade_stats.json"
+HISTORY_FILE = "trade_history.json"
+
+
+def append_trade_history(symbol: str, outcome: str, realized_pl: float):
+    history = _load_json(HISTORY_FILE, default=[])
+    history.append({
+        "symbol": symbol,
+        "outcome": outcome,
+        "pnl": realized_pl,
+        "closed_at": datetime.now().isoformat(),
+    })
+    _save_json(HISTORY_FILE, history)
 
 
 def update_and_get_stats(realized_pl: float) -> dict:
@@ -81,6 +93,7 @@ def check_open_trades():
         send_trade_closed(get_webhook_for(symbol), symbol, outcome, realized_pl)
 
         stats = update_and_get_stats(realized_pl)
+        append_trade_history(symbol, outcome, realized_pl)
         send_trade_result_summary(config.TRADE_RESULTS_WEBHOOK_URL, symbol, outcome, realized_pl, stats)
 
     _save_json(OPEN_TRADES_FILE, still_open)
