@@ -3,7 +3,7 @@ Thin wrapper around OANDA's v20 REST API. Handles:
 - authentication
 - mapping our internal symbol names (from yfinance, e.g. "GC=F") to OANDA's
   instrument names (e.g. "XAU_USD")
-- position sizing based on account risk %
+- position sizing based on account risk % AND real margin requirements
 - placing a market order with attached stop loss / take profit
 
 OANDA API docs: https://developer.oanda.com/rest-live-v20/introduction/
@@ -65,15 +65,42 @@ def get_account_balance() -> float:
     return float(account["balance"])
 
 
-def calculate_units(direction: str, entry_price: float, stop_loss: float) -> int:
+def get_margin_rate(instrument: str) -> float:
+    """
+    Fetches OANDA's actual margin requirement for this instrument on this
+    account (e.g. 0.05 = 5% margin required = 20:1 leverage). Used to cap
+    position size so a trade can never require more than a safe % of the
+    account balance - this is the fix for the sizing bug that caused margin
+    calls on EUR/USD and GBP/USD.
+    """
+    url = f"{_base_url()}/v3/accounts/{config.OANDA_ACCOUNT_ID}/instruments"
+    resp = requests.get(url, headers=_headers(), params={"instruments": instrument}, timeout=10)
+    if resp.status_code != 200:
+        raise RuntimeError(f"OANDA get_margin_rate failed ({resp.status_code}): {resp.text}")
+    data = resp.json()["instruments"][0]
+    return float(data["marginRate"])
+
+
+def calculate_units(direction: str, entry_price: float, stop_loss: float, instrument: str) -> int:
+    """
+    Position size based on config.RISK_PER_TRADE_PCT of account balance - but
+    capped so the position never requires more than config.MAX_MARGIN_USAGE_PCT
+    of the account balance as margin, using OANDA's real margin rate for this
+    instrument. Whichever cap is smaller (risk-based or margin-based) wins.
+    """
     balance = get_account_balance()
+
     risk_amount = balance * (config.RISK_PER_TRADE_PCT / 100)
     price_risk = abs(entry_price - stop_loss)
-
     if price_risk == 0:
         raise ValueError("Stop loss distance is zero - can't size a position.")
+    risk_based_units = risk_amount / price_risk
 
-    units = int(risk_amount / price_risk)
+    margin_rate = get_margin_rate(instrument)
+    max_margin_amount = balance * (config.MAX_MARGIN_USAGE_PCT / 100)
+    margin_capped_units = max_margin_amount / (entry_price * margin_rate)
+
+    units = int(min(risk_based_units, margin_capped_units))
     if direction == "SELL":
         units = -units
     return units
@@ -88,11 +115,6 @@ def get_trade(trade_id: str) -> dict:
 
 
 def get_current_price(symbol: str) -> float:
-    """
-    Fetches OANDA's actual current price - used to re-anchor stop loss/take
-    profit right before placing an order, since the strategy's price (from
-    yfinance) can be a minute or two stale by the time we act on it.
-    """
     instrument = to_oanda_instrument(symbol)
     url = f"{_base_url()}/v3/accounts/{config.OANDA_ACCOUNT_ID}/pricing"
     resp = requests.get(url, headers=_headers(), params={"instruments": instrument}, timeout=10)
@@ -107,7 +129,7 @@ def get_current_price(symbol: str) -> float:
 
 def place_market_order(symbol: str, direction: str, entry_price: float, stop_loss: float, take_profit: float) -> dict:
     instrument = to_oanda_instrument(symbol)
-    units = calculate_units(direction, entry_price, stop_loss)
+    units = calculate_units(direction, entry_price, stop_loss, instrument)
     precision = PRICE_PRECISION.get(instrument, 5)
 
     live_price = get_current_price(symbol)
