@@ -1,5 +1,11 @@
 """
 Central config. Change SYMBOL to switch instruments without touching other files.
+
+Secrets (API keys, webhooks) are NOT stored in this file, on purpose - this file
+is safe to upload to GitHub. Locally, real values come from local_secrets.py
+(which is in .gitignore and never gets uploaded). On GitHub Actions, real values
+come from GitHub Secrets instead. Either way, this file just reads whichever is
+available.
 """
 import os
 
@@ -10,11 +16,12 @@ except ImportError:
 
 
 def _secret(env_name: str) -> str:
+    """Environment variable (GitHub Actions) takes priority, then local_secrets.py (your Mac), then blank."""
     return os.getenv(env_name) or (getattr(_local, env_name, "") if _local else "") or ""
 
 
 SYMBOL = "GC=F"
-WATCHLIST = ["EURUSD=X", "GBPUSD=X"]
+WATCHLIST = ["EURUSD=X", "GBPUSD=X", "JPY=X", "AUDUSD=X", "USDCAD=X"]
 INTERVAL = "15m"
 LOOKBACK_PERIOD = "5d"
 
@@ -38,6 +45,9 @@ DISCORD_WEBHOOKS = {
     "GC=F": _secret("DISCORD_WEBHOOK_GOLD"),
     "EURUSD=X": _secret("DISCORD_WEBHOOK_EURUSD"),
     "GBPUSD=X": _secret("DISCORD_WEBHOOK_GBPUSD"),
+    "JPY=X": _secret("DISCORD_WEBHOOK_USDJPY"),
+    "AUDUSD=X": _secret("DISCORD_WEBHOOK_AUDUSD"),
+    "USDCAD=X": _secret("DISCORD_WEBHOOK_USDCAD"),
 }
 DEFAULT_DISCORD_WEBHOOK_URL = _secret("DISCORD_WEBHOOK_DEFAULT")
 TRADE_RESULTS_WEBHOOK_URL = _secret("DISCORD_WEBHOOK_RESULTS")

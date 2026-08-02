@@ -21,6 +21,8 @@ SYMBOL_MAP = {
     "EURUSD=X": "EUR_USD",
     "GBPUSD=X": "GBP_USD",
     "JPY=X": "USD_JPY",
+    "AUDUSD=X": "AUD_USD",
+    "USDCAD=X": "USD_CAD",
     "BTC-USD": "BTC_USD",
 }
 
@@ -29,6 +31,8 @@ PRICE_PRECISION = {
     "EUR_USD": 5,
     "GBP_USD": 5,
     "USD_JPY": 3,
+    "AUD_USD": 5,
+    "USD_CAD": 5,
     "BTC_USD": 2,
 }
 
@@ -66,13 +70,6 @@ def get_account_balance() -> float:
 
 
 def get_margin_rate(instrument: str) -> float:
-    """
-    Fetches OANDA's actual margin requirement for this instrument on this
-    account (e.g. 0.05 = 5% margin required = 20:1 leverage). Used to cap
-    position size so a trade can never require more than a safe % of the
-    account balance - this is the fix for the sizing bug that caused margin
-    calls on EUR/USD and GBP/USD.
-    """
     url = f"{_base_url()}/v3/accounts/{config.OANDA_ACCOUNT_ID}/instruments"
     resp = requests.get(url, headers=_headers(), params={"instruments": instrument}, timeout=10)
     if resp.status_code != 200:
@@ -82,12 +79,6 @@ def get_margin_rate(instrument: str) -> float:
 
 
 def calculate_units(direction: str, entry_price: float, stop_loss: float, instrument: str) -> int:
-    """
-    Position size based on config.RISK_PER_TRADE_PCT of account balance - but
-    capped so the position never requires more than config.MAX_MARGIN_USAGE_PCT
-    of the account balance as margin, using OANDA's real margin rate for this
-    instrument. Whichever cap is smaller (risk-based or margin-based) wins.
-    """
     balance = get_account_balance()
 
     risk_amount = balance * (config.RISK_PER_TRADE_PCT / 100)
