@@ -23,12 +23,13 @@ STATS_FILE = "trade_stats.json"
 HISTORY_FILE = "trade_history.json"
 
 
-def append_trade_history(symbol: str, outcome: str, realized_pl: float):
+def append_trade_history(symbol: str, outcome: str, realized_pl: float, strategy: str = "ema_crossover"):
     history = _load_json(HISTORY_FILE, default=[])
     history.append({
         "symbol": symbol,
         "outcome": outcome,
         "pnl": realized_pl,
+        "strategy": strategy,
         "closed_at": datetime.now().isoformat(),
     })
     _save_json(HISTORY_FILE, history)
