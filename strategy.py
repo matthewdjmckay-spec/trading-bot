@@ -1,12 +1,7 @@
 """
 V1 strategy: EMA crossover for direction, RSI as a filter to avoid chasing
 an already-overbought/oversold move, ATR to size stop loss / take profit
-relative to current volatility (so TP/SL adapt to the instrument and
-timeframe instead of using a fixed pip count).
-
-This is intentionally simple and fully transparent - every decision can be
-read straight from the code. That's the point for v1: you should be able to
-explain *why* it fired a signal, not just trust a black box.
+relative to current volatility.
 """
 from dataclasses import dataclass
 from typing import Optional
@@ -18,7 +13,7 @@ from indicators import add_indicators
 @dataclass
 class Signal:
     timestamp: pd.Timestamp
-    action: str          # "BUY", "SELL", or "HOLD"
+    action: str
     price: float
     stop_loss: Optional[float]
     take_profit: Optional[float]
@@ -26,25 +21,10 @@ class Signal:
 
 
 def generate_signals(df: pd.DataFrame, cfg) -> pd.DataFrame:
-    """
-    Adds an 'action' column to the dataframe for every row (used by the backtester
-    to simulate trade-by-trade). BUY/SELL fire only on the bar where the EMA
-    crossover happens, filtered by RSI AND by the longer-term trend (EMA_TREND) -
-    a BUY only fires if price is above the trend EMA (real uptrend), a SELL only
-    fires if price is below it (real downtrend). This was added after live testing
-    showed a large share of crossover signals were false alarms against the
-    broader trend.
-    """
     ema_trend_period = getattr(cfg, "EMA_TREND", None)
     data = add_indicators(df, cfg.EMA_FAST, cfg.EMA_SLOW, cfg.RSI_PERIOD, cfg.ATR_PERIOD, ema_trend_period)
 
     fast_above_slow = data["ema_fast"] > data["ema_slow"]
-    # NOTE: must use shift(fill_value=False) here, NOT shift().fillna(False) -
-    # the latter silently converts the boolean column to an "object" dtype
-    # (to hold the NaN before fillna), which breaks the ~ (not) operator into
-    # doing bitwise arithmetic instead of logical negation. That bug caused
-    # every bar where fast > slow to be flagged as a "fresh crossover," not
-    # just the actual crossing bar - found via live trading data in week 3.
     prev_above = fast_above_slow.shift(1, fill_value=False)
     crossed_up = fast_above_slow & (~prev_above)
     crossed_down = (~fast_above_slow) & prev_above
@@ -57,6 +37,16 @@ def generate_signals(df: pd.DataFrame, cfg) -> pd.DataFrame:
         in_downtrend = data["Close"] < data["ema_trend"]
         buy_cond = buy_cond & in_uptrend
         sell_cond = sell_cond & in_downtrend
+
+    # Diagnostic breakdown - lets us explain exactly WHY a bar was a HOLD,
+    # permanently, in every log line going forward.
+    data["diag_crossed_up"] = crossed_up
+    data["diag_crossed_down"] = crossed_down
+    data["diag_rsi_blocked_buy"] = crossed_up & ~(data["rsi"] < cfg.RSI_UPPER)
+    data["diag_rsi_blocked_sell"] = crossed_down & ~(data["rsi"] > cfg.RSI_LOWER)
+    if ema_trend_period:
+        data["diag_trend_blocked_buy"] = crossed_up & (data["rsi"] < cfg.RSI_UPPER) & ~in_uptrend
+        data["diag_trend_blocked_sell"] = crossed_down & (data["rsi"] > cfg.RSI_LOWER) & ~in_downtrend
 
     data["action"] = "HOLD"
     data.loc[buy_cond, "action"] = "BUY"
@@ -77,10 +67,6 @@ def generate_signals(df: pd.DataFrame, cfg) -> pd.DataFrame:
 
 
 def latest_signal(df: pd.DataFrame, cfg, symbol: str) -> Signal:
-    """
-    Returns the signal for the most recent completed candle - this is what
-    you'd act on "right now" for a given symbol.
-    """
     data = generate_signals(df, cfg)
     last = data.iloc[-1]
 
@@ -94,7 +80,16 @@ def latest_signal(df: pd.DataFrame, cfg, symbol: str) -> Signal:
     if "ema_trend" in data.columns:
         reason_parts.append(f"EMA{cfg.EMA_TREND}(trend)={last['ema_trend']:.4f}")
     if action == "HOLD":
-        reason_parts.insert(0, "No fresh EMA crossover on this candle, or RSI filter blocked it")
+        if bool(last["diag_trend_blocked_buy"]) if "diag_trend_blocked_buy" in data.columns else False:
+            reason_parts.insert(0, f"EMA crossed UP but blocked by trend filter (price below EMA{cfg.EMA_TREND})")
+        elif bool(last["diag_trend_blocked_sell"]) if "diag_trend_blocked_sell" in data.columns else False:
+            reason_parts.insert(0, f"EMA crossed DOWN but blocked by trend filter (price above EMA{cfg.EMA_TREND})")
+        elif bool(last["diag_rsi_blocked_buy"]):
+            reason_parts.insert(0, f"EMA crossed UP but blocked by RSI (RSI {last['rsi']:.1f} >= {cfg.RSI_UPPER}, overbought)")
+        elif bool(last["diag_rsi_blocked_sell"]):
+            reason_parts.insert(0, f"EMA crossed DOWN but blocked by RSI (RSI {last['rsi']:.1f} <= {cfg.RSI_LOWER}, oversold)")
+        else:
+            reason_parts.insert(0, "No fresh EMA crossover on this candle")
     else:
         reason_parts.insert(0, f"EMA crossover triggered {action}")
 

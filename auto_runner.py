@@ -140,7 +140,7 @@ def check_once(symbol: str):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     if sig.action == "HOLD":
-        print(f"[{now}] {symbol}: HOLD (no new setup) - candle {ts_str}")
+        print(f"[{now}] {symbol}: HOLD - {sig.reason}")
         return
 
     last_alerted = load_last_alerted(symbol)
