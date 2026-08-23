@@ -20,6 +20,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"
 
       - name: Install dependencies
         run: pip install -r requirements.txt
@@ -49,6 +50,12 @@ jobs:
           done
           if ! git diff --quiet --cached; then
             git commit -m "Update bot state [skip ci]"
-            git pull --rebase origin main
-            git push
+            if ! git push; then
+              git fetch origin main
+              python3 merge_state.py
+              git add alerted_state.json open_trades.json trade_stats.json trade_history.json
+              git reset --soft origin/main
+              git commit -m "Merge concurrent run state [skip ci]"
+              git push
+            fi
           fi
